@@ -94,6 +94,7 @@ void TestBroadcastEvent() {
     // Test remove by handle
     bool removed = onInt.Remove(h1);
     assert(removed);
+    (void)removed;
     assert(onInt.Empty());
     onInt(200);
     assert(receiver.tracker.calls == 2); // Not called
@@ -204,6 +205,7 @@ void TestRemoveByInstance() {
     // Remove all for a1
     std::size_t removed = onInt.Remove(&a1);
     assert(removed == 2);
+    (void)removed;
     assert(onInt.Size() == 1);
     assert(!onInt.Contains(&a1));
     assert(onInt.Contains(&a2));

@@ -1,59 +1,85 @@
 # FunctionSpeaker
 
-FunctionSpeaker is a lightweight C++ library that provides a flexible and type-safe implementation of the multicast delegate pattern. It allows you to easily create event-driven systems in your C++ applications.
+FunctionSpeaker is a lightweight, header-centric modern C++20 library providing a flexible, memory-safe, and type-safe implementation of the multicast delegate / observer pattern. It enables decoupled, event-driven architectures for games, applications, and embedded systems.
 
 ## Features
 
-- Type-safe delegate system
-- Support for member functions with multiple arguments
-- Easy-to-use multicast delegate for invoking multiple callbacks
+- **Type-Safe Multicast Delegates**: Support for both broadcast payloads (`MultiCastDelegate<Args...>`) and bound arguments (`MultiCastDelegate<>` or CTAD).
+- **Universal Callable Support**:
+  - Member functions (both non-const and `const`)
+  - Free functions and static methods
+  - Lambdas and functors (stateless or capturing)
+- **Memory Safety & Value Semantics**:
+  - Fully compliant with the **Rule of Five** (no raw-pointer leaks, safe deep-copying, and `noexcept` moving).
+  - Eliminates double-free and use-after-free pitfalls.
+- **Reentrancy Safety**:
+  - Callbacks can safely add or remove listeners during execution without iterator invalidation.
+- **Lifecycle Management**:
+  - Unsubscribe by subscription handle: `delegate.Remove(handle)` or `delegate -= handle`.
+  - Unsubscribe by instance pointer: `delegate.Remove(&instance)` or `delegate -= &instance`.
+  - Check membership: `delegate.Contains(handle)`, `delegate.Contains(&instance)`.
+  - Inspect state: `delegate.Empty()`, `delegate.Size()`, and `if (delegate)`.
+- **Modern C++20**:
+  - Built with `std::invoke`, `std::apply`, and C++20 concepts/type constraints for clear compiler diagnostics.
+  - Supports function signature syntax: `MultiCastDelegate<void(int, double)>`.
+- **Operator Overloads**:
+  - `operator()` for invocation: `onEvent(arg1, arg2);`
+  - `operator+=` to register callbacks: `onEvent += []() { ... };`
+  - `operator-=` to unregister callbacks.
 
-## Installation
+---
 
-To use FunctionSpeaker in your project, simply include the `FunctionSpeaker.h` header file in your C++ project.
+## Installation & Integration
+
+### Header-Only / Include
+
+FunctionSpeaker is contained within `FunctionSpeaker.h`. Simply include the header:
 
 ```cpp
 #include "FunctionSpeaker.h"
 ```
 
-## Usage
+### CMake Integration
 
-Here's a simple example demonstrating how to use FunctionSpeaker with a health system in a game:
+Using CMake `FetchContent` or `add_subdirectory`:
+
+```cmake
+add_subdirectory(path/to/FunctionSpeaker)
+target_link_libraries(YourProject PRIVATE FunctionSpeaker::FunctionSpeaker)
+```
+
+---
+
+## Usage Patterns
+
+### Pattern 1: Typed Broadcast Events (Observer Pattern)
+
+Publishers declare an event with argument types and broadcast data to all subscribers:
 
 ```cpp
 #include "FunctionSpeaker.h"
 #include <iostream>
 
-// Player class with health
 class Player {
 public:
     Player(int initialHealth) : health(initialHealth) {}
 
     void TakeDamage(int damage) {
-        health -= damage;
-        if (health < 0) health = 0;
-        onHealthChanged.ExecuteAll(health);
+        health = std::max(0, health - damage);
+        onHealthChanged(health); // Invokes all listeners with the new health
     }
 
-    void Heal(int amount) {
-        health += amount;
-        if (health > 100) health = 100;
-        onHealthChanged.ExecuteAll(health);
-    }
-
-    int GetHealth() const { return health; }
-
-    MultiCastDelegate<int> onHealthChanged;
+    // Broadcast delegate taking (int currentHealth)
+    FunctionSpeaker::MultiCastDelegate<int> onHealthChanged;
 
 private:
     int health;
 };
 
-// UI class to display health
 class HealthUI {
 public:
-    void UpdateHealth(int newHealth) {
-        std::cout << "Health UI updated. New health: " << newHealth << std::endl;
+    void UpdateHealth(int newHealth) const {
+        std::cout << "UI: Health is now " << newHealth << " HP\n";
     }
 };
 
@@ -61,44 +87,141 @@ int main() {
     Player player(100);
     HealthUI healthUI;
 
-    // Register the UpdateHealth function to be called when health changes
-    player.onHealthChanged.Add(&healthUI, &HealthUI::UpdateHealth);
+    // Register a const member function
+    auto handle = player.onHealthChanged.Add(&healthUI, &HealthUI::UpdateHealth);
 
-    // Simulate game events
-    std::cout << "Player takes 30 damage" << std::endl;
+    // Register a lambda
+    player.onHealthChanged.Add([](int hp) {
+        std::cout << "Audio: Played heartbeat sound for HP: " << hp << '\n';
+    });
+
+    // Trigger events
     player.TakeDamage(30);
 
-    std::cout << "Player heals 20 health" << std::endl;
-    player.Heal(20);
+    // Unsubscribe when done
+    player.onHealthChanged.Remove(handle);
+    player.TakeDamage(20);
 
     return 0;
 }
 ```
 
-This example demonstrates how to:
-1. Create a `Player` class with health and an `onHealthChanged` delegate.
-2. Create a `HealthUI` class with an `UpdateHealth` method.
-3. Register the `UpdateHealth` method to be called when the player's health changes.
-4. Trigger health changes and observe the automatic UI updates.
+---
+
+### Pattern 2: MultiCastDelegate with Bound Arguments (Command / Action Pattern)
+
+Callbacks can have their arguments bound at registration time:
+
+```cpp
+#include "FunctionSpeaker.h"
+#include <iostream>
+
+class AudioSystem {
+public:
+    void PlaySound(const std::string& soundName, float volume) {
+        std::cout << "Playing " << soundName << " at volume " << volume << '\n';
+    }
+};
+
+int main() {
+    AudioSystem audio;
+    FunctionSpeaker::MultiCastDelegate onGameStart;
+
+    // Arguments bound at registration time
+    onGameStart.Add(&audio, &AudioSystem::PlaySound, "intro_fanfare.wav", 1.0f);
+    onGameStart.Add([]() {
+        std::cout << "Game started!\n";
+    });
+
+    // Execute all registered actions
+    onGameStart.ExecuteAll();
+
+    return 0;
+}
+```
+
+---
 
 ## API Overview
 
-### MultiCastDelegate
-
-The main class you'll interact with. It allows you to register multiple callbacks and execute them all at once.
+### Class Template
 
 ```cpp
-MultiCastDelegate<Args...> myDelegate;
+namespace FunctionSpeaker {
+    template<typename... Args>
+    class MultiCastDelegate;
+}
 ```
 
-#### Adding a callback
+### Registration Methods
 
 ```cpp
-myDelegate.Add(instance, &Class::Method, args...);
+// Member function (supports non-const and const methods)
+Handle Add(T* instance, MemberFunc func, BoundArgs&&... bound);
+
+// Free function, lambda, or functor
+Handle Add(Callable&& callable, BoundArgs&&... bound);
+
+// Callable tied to an instance pointer for lifecycle tracking
+Handle AddWithContext(const T* instance, Callable&& callable, BoundArgs&&... bound);
+
+// Operator += shortcut
+Handle operator+=(Callable&& callable);
 ```
 
-#### Executing all callbacks
+### Removal Methods
 
 ```cpp
-myDelegate.ExecuteAll(args...);
+// Remove by handle
+bool Remove(Handle handle);
+bool operator-=(Handle handle);
+
+// Remove all callbacks associated with an instance pointer
+std::size_t Remove(const void* instance);
+std::size_t operator-=(const void* instance);
+
+// Remove all callbacks
+void Clear() noexcept;
 ```
+
+### Execution Methods
+
+```cpp
+// Execute all registered callbacks
+void ExecuteAll(Args... args) const;
+
+// Call operator overload
+void operator()(Args... args) const;
+```
+
+### State Inspection
+
+```cpp
+bool Empty() const noexcept;
+std::size_t Size() const noexcept;
+bool Contains(Handle handle) const noexcept;
+bool Contains(const void* instance) const noexcept;
+explicit operator bool() const noexcept;
+```
+
+---
+
+## Building and Testing
+
+```bash
+# Configure with tests and examples enabled
+cmake -B build
+
+# Build Release binaries
+cmake --build build --config Release
+
+# Run automated tests
+ctest --test-dir build -C Release --output-on-failure
+
+# Run the example
+./build/Release/FunctionSpeakerExample
+```
+
+## License
+
+This project is licensed under the MIT License - see the `LICENSE.txt` file for details.
