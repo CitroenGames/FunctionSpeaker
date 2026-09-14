@@ -1,12 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
-project(FunctionSpeaker VERSION 0.1.0 LANGUAGES CXX)
+project(FunctionSpeaker VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Option to build examples (defaults to ON if top-level project)
+# Options (default to ON if top-level project)
 option(BUILD_EXAMPLES "Build examples" ${PROJECT_IS_TOP_LEVEL})
+option(BUILD_TESTS "Build tests" ${PROJECT_IS_TOP_LEVEL})
 
 # FunctionSpeaker library
 add_library(${PROJECT_NAME} STATIC
@@ -39,4 +40,18 @@ if(BUILD_EXAMPLES)
     else()
         target_compile_options(FunctionSpeakerExample PRIVATE -Wall -Wextra -Wpedantic)
     endif()
+endif()
+
+if(BUILD_TESTS)
+    enable_testing()
+    add_executable(FunctionSpeakerTests
+        tests/test_main.cpp
+    )
+    target_link_libraries(FunctionSpeakerTests PRIVATE ${PROJECT_NAME})
+    if(MSVC)
+        target_compile_options(FunctionSpeakerTests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(FunctionSpeakerTests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME FunctionSpeakerTests COMMAND FunctionSpeakerTests)
 endif()

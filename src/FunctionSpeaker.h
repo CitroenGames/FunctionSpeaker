@@ -65,7 +65,15 @@ public:
     void Execute(Args... args) override {
         if (m_instance != nullptr && m_func != nullptr) {
             std::apply([&](auto&&... bound) {
-                std::invoke(m_func, m_instance, args..., bound...);
+                if constexpr (std::is_invocable_v<MemberFunc, T*, Args..., decltype(bound)...>) {
+                    std::invoke(m_func, m_instance, args..., bound...);
+                } else if constexpr (std::is_invocable_v<MemberFunc, T*, decltype(bound)...>) {
+                    std::invoke(m_func, m_instance, bound...);
+                } else if constexpr (std::is_invocable_v<MemberFunc, T*, Args...>) {
+                    std::invoke(m_func, m_instance, args...);
+                } else if constexpr (std::is_invocable_v<MemberFunc, T*>) {
+                    std::invoke(m_func, m_instance);
+                }
             }, m_boundArgs);
         }
     }
@@ -93,7 +101,15 @@ public:
 
     void Execute(Args... args) override {
         std::apply([&](auto&&... bound) {
-            std::invoke(m_callable, args..., bound...);
+            if constexpr (std::is_invocable_v<Callable, Args..., decltype(bound)...>) {
+                std::invoke(m_callable, args..., bound...);
+            } else if constexpr (std::is_invocable_v<Callable, decltype(bound)...>) {
+                std::invoke(m_callable, bound...);
+            } else if constexpr (std::is_invocable_v<Callable, Args...>) {
+                std::invoke(m_callable, args...);
+            } else if constexpr (std::is_invocable_v<Callable>) {
+                std::invoke(m_callable);
+            }
         }, m_boundArgs);
     }
 
@@ -157,7 +173,11 @@ public:
      * @return A DelegateHandle that can be used to unregister the callback.
      */
     template<typename T, typename MemberFunc, typename... BoundArgs>
-    requires std::is_member_function_pointer_v<std::decay_t<MemberFunc>>
+    requires std::is_member_function_pointer_v<std::decay_t<MemberFunc>> &&
+             (std::is_invocable_v<MemberFunc, T*, Args..., std::decay_t<BoundArgs>...> ||
+              std::is_invocable_v<MemberFunc, T*, std::decay_t<BoundArgs>...> ||
+              std::is_invocable_v<MemberFunc, T*, Args...> ||
+              std::is_invocable_v<MemberFunc, T*>)
     Handle Add(T* instance, MemberFunc func, BoundArgs&&... bound) {
         if (!instance || !func) {
             return InvalidHandle;
@@ -180,7 +200,11 @@ public:
      */
     template<typename Callable, typename... BoundArgs>
     requires (!std::is_member_function_pointer_v<std::decay_t<Callable>>) &&
-             (!detail::IsInstanceAndMemberPair<Callable, BoundArgs...>::value)
+             (!detail::IsInstanceAndMemberPair<Callable, BoundArgs...>::value) &&
+             (std::is_invocable_v<Callable, Args..., std::decay_t<BoundArgs>...> ||
+              std::is_invocable_v<Callable, std::decay_t<BoundArgs>...> ||
+              std::is_invocable_v<Callable, Args...> ||
+              std::is_invocable_v<Callable>)
     Handle Add(Callable&& callable, BoundArgs&&... bound) {
         const Handle id = GenerateId();
         using InvokerType = detail::CallableDelegate<void(Args...), std::decay_t<Callable>, std::decay_t<BoundArgs>...>;
